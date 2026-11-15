@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Telegram Music Library</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --card: #1a1d24;
+      --card-hover: #242832;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --accent: #3b82f6;
+      --accent-active: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding-bottom: 140px; }
+
+    /* Header & Navigation */
+    header { padding: 16px; position: sticky; top: 0; background: rgba(15, 17, 21, 0.92); backdrop-filter: blur(10px); z-index: 10; border-bottom: 1px solid #222630; }
+    header h1 { font-size: 20px; font-weight: 700; }
+    .tabs { display: flex; gap: 8px; margin-top: 12px; }
+    .tab-btn { flex: 1; padding: 10px; border: none; border-radius: 10px; background: var(--card); color: var(--muted); font-weight: 600; font-size: 14px; cursor: pointer; }
+    .tab-btn.active { background: var(--accent); color: #fff; }
+
+    /* Content Views */
+    .container { padding: 16px; }
+    .album-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+    .album-card { background: var(--card); border-radius: 14px; overflow: hidden; cursor: pointer; transition: transform 0.15s; }
+    .album-card:active { transform: scale(0.97); }
+    .album-card img { width: 100%; aspect-ratio: 1/1; object-fit: cover; display: block; background: #222; }
+    .album-info { padding: 10px; }
+    .album-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .album-artist { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* Album Detail & Song Rows */
+    .back-btn { background: none; border: none; color: var(--accent); font-size: 14px; font-weight: 600; margin-bottom: 14px; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    .album-header { display: flex; gap: 14px; align-items: center; margin-bottom: 18px; }
+    .album-header img { width: 84px; height: 84px; border-radius: 12px; object-fit: cover; }
+    .song-list { display: flex; flex-direction: column; gap: 10px; }
+    .song-row { display: flex; align-items: center; justify-content: space-between; background: var(--card); padding: 12px; border-radius: 12px; gap: 10px; }
+    .song-row.playing { border: 1px solid var(--accent); }
+    .song-meta { flex: 1; min-width: 0; cursor: pointer; }
+    .song-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .song-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .action-btn { border: none; border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .add-btn { background: #262b36; color: #fff; }
+    .added-btn { background: rgba(16, 185, 129, 0.18); color: var(--accent-active); }
+    .remove-btn { background: rgba(239, 68, 68, 0.18); color: #f87171; }
+    .empty-state { text-align: center; color: var(--muted); padding: 40px 16px; font-size: 14px; }
+
+    /* Sticky Bottom Player */
+    .player { position: fixed; bottom: 0; left: 0; right: 0; background: #161920; border-top: 1px solid #282d38; padding: 12px 16px 20px; display: none; flex-direction: column; gap: 8px; z-index: 20; }
+    .player.visible { display: flex; }
+    .player-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .player-info { flex: 1; min-width: 0; }
+    .player-title { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .player-artist { font-size: 12px; color: var(--muted); }
+    .controls { display: flex; align-items: center; gap: 12px; }
+    .ctrl-btn { background: var(--card); border: none; color: #fff; width: 38px; height: 38px; border-radius: 50%; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .ctrl-btn.play { background: var(--accent); width: 42px; height: 42px; }
+    .progress-bar { width: 100%; accent-color: var(--accent); height: 4px; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1 id="headerTitle">Browse Albums</h1>
+    <div class="tabs">
+      <button class="tab-btn active" id="tabAlbums" onclick="switchTab('albums')">Albums</button>
+      <button class="tab-btn" id="tabLibrary" onclick="switchTab('library')">My Library (<span id="libCount">0</span>)</button>
+    </div>
+  </header>
+
+  <main class="container" id="appContent"></main>
+
+  <div class="player" id="playerBar">
+    <div class="player-top">
+      <div class="player-info">
+        <div class="player-title" id="playerTitle">Not Playing</div>
+        <div class="player-artist" id="playerArtist">—</div>
+      </div>
+      <div class="controls">
+        <button class="ctrl-btn" onclick="prevTrack()">⏮</button>
+        <button class="ctrl-btn play" id="playPauseBtn" onclick="togglePlay()">▶</button>
+        <button class="ctrl-btn" onclick="nextTrack()">⏭</button>
+      </div>
+    </div>
+    <input type="range" class="progress-bar" id="seekBar" value="0" min="0" max="100" oninput="seekAudio(this.value)" />
+    <audio id="audioEl" preload="metadata"></audio>
+  </div>
+
+  <script>
+    // ==========================================
+    // 1. REPLACE WITH YOUR SUPABASE MP3 & COVER LINKS
+    // ==========================================
+    const ALBUMS = [
+      {
+        id: "alb_1",
+        title: "Midnight Echoes",
+        artist: "Demo Artist",
+        cover: "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=400&q=80",
+        songs: [
+          { id: "s_101", title: "Neon Horizon", duration: "2:14", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" },
+          { id: "s_102", title: "City Rain", duration: "3:05", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3" }
+        ]
+      },
+      {
+        id: "alb_2",
+        title: "Solar Drift",
+        artist: "Studio Collective",
+        cover: "https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&q=80",
+        songs: [
+          { id: "s_201", title: "Morning Waves", duration: "2:48", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3" },
+          { id: "s_202", title: "Golden Hour", duration: "3:19", url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" }
+        ]
+      }
+    ];
+
+    // ==========================================
+    // 2. TELEGRAM MINI APP & STORAGE SETUP
+    // ==========================================
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+    }
+
+    let currentTab = "albums";
+    let selectedAlbumId = null;
+    let savedSongIds = [];
+    let currentQueue = [];
+    let currentIndex = -1;
+
+    const audio = document.getElementById("audioEl");
+    const seekBar = document.getElementById("seekBar");
+    const playPauseBtn = document.getElementById("playPauseBtn");
+
+    function loadLibrary(callback) {
+      if (tg && tg.CloudStorage) {
+        tg.CloudStorage.getItem("user_library", (err, val) => {
+          savedSongIds = (!err && val) ? JSON.parse(val) : [];
+          callback();
+        });
+      } else {
+        savedSongIds = JSON.parse(localStorage.getItem("user_library") || "[]");
+        callback();
+      }
+    }
+
+    function saveLibrary() {
+      const serialized = JSON.stringify(savedSongIds);
+      if (tg && tg.CloudStorage) {
+        tg.CloudStorage.setItem("user_library", serialized);
+      } else {
+        localStorage.setItem("user_library", serialized);
+      }
+      document.getElementById("libCount").innerText = savedSongIds.length;
+    }
+
+    function toggleSongInLibrary(songId) {
+      if (savedSongIds.includes(songId)) {
+        savedSongIds = savedSongIds.filter(id => id !== songId);
+      } else {
+        savedSongIds.push(songId);
+        if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+      }
+      saveLibrary();
+      render();
+    }
+
+    // ==========================================
+    // 3. UI RENDERING
+    // ==========================================
+    function switchTab(tab) {
+      currentTab = tab;
+      selectedAlbumId = null;
+      document.getElementById("tabAlbums").classList.toggle("active", tab === "albums");
+      document.getElementById("tabLibrary").classList.toggle("active", tab === "library");
+      document.getElementById("headerTitle").innerText = tab === "albums" ? "Browse Albums" : "My Library";
+      render();
+    }
+
+    function openAlbum(albumId) {
+      selectedAlbumId = albumId;
+      render();
+    }
+
+    function getAllSongsFlat() {
+      const list = [];
+      ALBUMS.forEach(alb => {
+        alb.songs.forEach(s => list.push({ ...s, albumTitle: alb.title, artist: alb.artist, cover: alb.cover }));
+      });
+      return list;
+    }
+
+    function render() {
+      document.getElementById("libCount").innerText = savedSongIds.length;
+      const container = document.getElementById("appContent");
+      const activeTrack = currentQueue[currentIndex];
+
+      if (currentTab === "albums" && !selectedAlbumId) {
+        container.innerHTML = `<div class="album-grid">` + ALBUMS.map(alb => `
+          <div class="album-card" onclick="openAlbum('${alb.id}')">
+            <img src="${alb.cover}" alt="${alb.title}" />
+            <div class="album-info">
+              <div class="album-title">${alb.title}</div>
+              <div class="album-artist">${alb.artist} • ${alb.songs.length} tracks</div>
+            </div>
+          </div>
+        `).join("") + `</div>`;
+        return;
+      }
+
+      if (currentTab === "albums" && selectedAlbumId) {
+        const album = ALBUMS.find(a => a.id === selectedAlbumId);
+        const queue = album.songs.map(s => ({ ...s, albumTitle: album.title, artist: album.artist, cover: album.cover }));
+        container.innerHTML = `
+          <button class="back-btn" onclick="openAlbum(null)">← Back to Albums</button>
+          <div class="album-header">
+            <img src="${album.cover}" alt="${album.title}" />
+            <div>
+              <h2>${album.title}</h2>
+              <p class="song-sub">${album.artist}</p>
+            </div>
+          </div>
+          <div class="song-list">
+            ${queue.map((song, idx) => {
+              const isAdded = savedSongIds.includes(song.id);
+              const isPlaying = activeTrack && activeTrack.id === song.id;
+              return `
+                <div class="song-row ${isPlaying ? "playing" : ""}">
+                  <div class="song-meta" onclick='playFromList(${JSON.stringify(queue)}, ${idx})'>
+                    <div class="song-title">${isPlaying ? "🔊 " : ""}${song.title}</div>
+                    <div class="song-sub">${song.duration}</div>
+                  </div>
+                  <button class="action-btn ${isAdded ? "added-btn" : "add-btn"}" onclick="toggleSongInLibrary('${song.id}')">
+                    ${isAdded ? "✓ Added" : "+ Add"}
+                  </button>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `;
+        return;
+      }
+
+      if (currentTab === "library") {
+        const allSongs = getAllSongsFlat();
+        const mySongs = allSongs.filter(s => savedSongIds.includes(s.id));
+        if (mySongs.length === 0) {
+          container.innerHTML = `<div class="empty-state">Your library is empty.<br/>Go to <b>Albums</b> and tap <b>+ Add</b> on any song.</div>`;
+          return;
+        }
+        container.innerHTML = `<div class="song-list">` + mySongs.map((song, idx) => {
+          const isPlaying = activeTrack && activeTrack.id === song.id;
+          return `
+            <div class="song-row ${isPlaying ? "playing" : ""}">
+              <div class="song-meta" onclick='playFromList(${JSON.stringify(mySongs)}, ${idx})'>
+                <div class="song-title">${isPlaying ? "🔊 " : ""}${song.title}</div>
+                <div class="song-sub">${song.artist} • ${song.albumTitle}</div>
+              </div>
+              <button class="action-btn remove-btn" onclick="toggleSongInLibrary('${song.id}')">Remove</button>
+            </div>
+          `;
+        }).join("") + `</div>`;
+      }
+    }
+
+    // ==========================================
+    // 4. AUDIO ENGINE & LOCK-SCREEN CONTROLS
+    // ==========================================
+    function playFromList(queue, index) {
+      currentQueue = queue;
+      currentIndex = index;
+      loadAndPlayTrack();
+    }
+
+    function loadAndPlayTrack() {
+      const track = currentQueue[currentIndex];
+      if (!track) return;
+      audio.src = track.url;
+      audio.play();
+      document.getElementById("playerBar").classList.add("visible");
+      document.getElementById("playerTitle").innerText = track.title;
+      document.getElementById("playerArtist").innerText = `${track.artist} — ${track.albumTitle}`;
+      playPauseBtn.innerText = "⏸";
+
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: track.title,
+          artist: track.artist,
+          album: track.albumTitle,
+          artwork: [{ src: track.cover, sizes: "512x512", type: "image/jpeg" }]
+        });
+        navigator.mediaSession.setActionHandler("play", () => audio.play());
+        navigator.mediaSession.setActionHandler("pause", () => audio.pause());
+        navigator.mediaSession.setActionHandler("previoustrack", prevTrack);
+        navigator.mediaSession.setActionHandler("nexttrack", nextTrack);
+      }
+      render();
+    }
+
+    function togglePlay() {
+      if (audio.paused) {
+        audio.play();
+        playPauseBtn.innerText = "⏸";
+      } else {
+        audio.pause();
+        playPauseBtn.innerText = "▶";
+      }
+    }
+
+    function nextTrack() {
+      if (currentQueue.length === 0) return;
+      currentIndex = (currentIndex + 1) % currentQueue.length;
+      loadAndPlayTrack();
+    }
+
+    function prevTrack() {
+      if (currentQueue.length === 0) return;
+      currentIndex = (currentIndex - 1 + currentQueue.length) % currentQueue.length;
+      loadAndPlayTrack();
+    }
+
+    function seekAudio(val) {
+      if (audio.duration) audio.currentTime = (val / 100) * audio.duration;
+    }
+
+    audio.addEventListener("timeupdate", () => {
+      if (audio.duration) seekBar.value = (audio.currentTime / audio.duration) * 100;
+    });
+    audio.addEventListener("ended", nextTrack);
+    audio.addEventListener("pause", () => playPauseBtn.innerText = "▶");
+    audio.addEventListener("play", () => playPauseBtn.innerText = "⏸");
+
+    loadLibrary(render);
+  </script>
+</body>
+</html>
